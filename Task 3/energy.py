@@ -217,33 +217,33 @@ def bifurcation_diagram(density_range=(0.1, 0.9), num_densities=50, side=1.0, g=
     return densities, all_equilibria
 
 
-def plot_bifurcation_diagram(density_range=(0.1, 0.9), num_densities=100, side=1.0, g=9.81, degrees=True, show=True, save_path=None):
+def plot_bifurcation_diagram(density_range=(0.1, 0.9), num_densities=200, side=1.0, g=9.81, degrees=True, show=True, save_path=None):
     """
     Plot bifurcation diagram showing equilibrium paths for changing density.
     """
     densities, all_equilibria = bifurcation_diagram(density_range, num_densities, side, g)
 
-    fig, ax = plt.subplots(figsize=(5, 6))
+    fig, ax = plt.subplots(figsize=(6, 5))
 
     # Plot each equilibrium point as a discrete marker
     for rho, eq_angles in zip(densities, all_equilibria):
         if len(eq_angles) > 0:
-            x_vals = np.degrees(eq_angles) if degrees else eq_angles
-            y_vals = np.full_like(x_vals, rho)
+            y_vals = np.degrees(eq_angles) if degrees else eq_angles
+            x_vals = np.full_like(y_vals, rho)
             ax.plot(x_vals, y_vals, 'o', color='tab:blue', markersize=4, alpha=0.7)
 
-    ax.set_xlabel('Equilibrium Angle (degrees)' if degrees else 'Equilibrium Angle (radians)')
-    ax.set_ylabel('Relative Density')
-    ax.set_title('Bifurcation Diagram: Equilibrium Angles vs Density')
+    ax.set_xlabel('Relative Density')
+    ax.set_ylabel('Equilibrium Angle (degrees)' if degrees else 'Equilibrium Angle (radians)')
+    ax.set_title('Bifurcation Diagram: Equilibrium Angles vs Relative Density')
     ax.grid(True, alpha=0.3)
 
     # Set reasonable axis limits
     if degrees:
-        ax.set_xlim(-50, 50)
+        ax.set_ylim(-50, 50)
     else:
-        ax.set_xlim(-np.pi/3.6, np.pi/3.6)
+        ax.set_ylim(-np.pi/3.6, np.pi/3.6)
 
-    ax.set_ylim(density_range[0], density_range[1])
+    ax.set_xlim(density_range[0], density_range[1])
 
     if save_path is not None:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -331,5 +331,5 @@ if __name__ == "__main__":
     print(f"Equilibrium angles: {np.degrees(eq_angles)} degrees")
 
     # Plot diagrams
-    plot_multiple_potential_vs_angle(relative_densities=[0.2, 0.21, 0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28, 0.29, 0.3], degrees=True, normalize_mean=True)
-    #plot_bifurcation_diagram(density_range=(0.05, 0.95), num_densities=100)
+    #plot_multiple_potential_vs_angle(relative_densities=[0.1, 0.2, 0.3, 0.4, 0.5], degrees=True, normalize_mean=True)
+    plot_bifurcation_diagram(density_range=(0.05, 0.95), num_densities=100)
