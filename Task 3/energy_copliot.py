@@ -1,53 +1,119 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-def bouancy_position(theta, relative_density, side=1.0):
-    
-    rho = 0.5 - np.abs(0.5 - relative_density) 
-    theta = np.abs(theta)  # Bouancy position is symmetric about theta=0
-    t = side*np.tan(theta)
-    h = rho*side - t/2
 
-    A_r = h*side
-    x_r = 0
-    y_r = h/2
+def _rotate_square_vertices(theta, side=1.0):
+    half = side / 2.0
+    corners = [
+
+        (-half, -half),
+        (half, -half),
+        (half, half),
+        (-half, half),
+    ]
+    cos_t = np.cos(theta)
+    sin_t = np.sin(theta)
+    return [
+        (x * cos_t - y * sin_t, x * sin_t + y * cos_t)
+        for x, y in corners
+    ]
 
 
-    A_t = t*side/2
-    x_t = side/6
-    y_t = h + t/3
+def _clip_polygon_to_waterline(polygon):
+    clipped = []
+    n = len(polygon)
+    for i in range(n):
+        x1, y1 = polygon[i]
+        x2, y2 = polygon[(i + 1) % n]
+        inside1 = y1 <= 0.0
+        inside2 = y2 <= 0.0
 
-    A = rho*side*side
-    x_b = (x_r*A_r + x_t*A_t) / A
-    y_b = (y_r*A_r + y_t*A_t) / A
+        if inside1:
+            clipped.append((x1, y1))
 
-    if h < 0:
-        b = np.sqrt(2*rho*side*side/np.tan(theta))
-        x_b = side/2 - b/3
-        y_b = b*np.tan(theta)/3
+        if inside1 ^ inside2:
+            t = y1 / (y1 - y2)
+            x_int = x1 + t * (x2 - x1)
+            clipped.append((x_int, 0.0))
 
-    return x_b, y_b
+    return clipped
 
-def r_bg(theta, relative_density, side=1.0):
 
-    rho = 0.5 - np.abs(0.5 - relative_density) 
-    theta = np.abs(theta)
-    
-    x_g, y_g = 0, side / 2
-    x_b, y_b = bouancy_position(theta, rho, side)
+def _polygon_area_and_centroid(polygon):
+    if len(polygon) < 3:
+        return 0.0, (0.0, 0.0)
 
-    return x_g - x_b, y_g - y_b
+    area = 0.0
+    cx = 0.0
+    cy = 0.0
+    n = len(polygon)
+
+    for i in range(n):
+        x0, y0 = polygon[i]
+        x1, y1 = polygon[(i + 1) % n]
+        cross = x0 * y1 - x1 * y0
+        area += cross
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+
+    area *= 0.5
+    if abs(area) < 1e-16:
+        return 0.0, (0.0, 0.0)
+
+    cx /= 6.0 * area
+    cy /= 6.0 * area
+    return abs(area), (cx, cy)
+
+
+def _submerged_area_and_centroid(theta, y0, side=1.0):
+    vertices = _rotate_square_vertices(theta, side)
+    translated = [(x, y + y0) for x, y in vertices]
+    submerged = _clip_polygon_to_waterline(translated)
+    return _polygon_area_and_centroid(submerged)
+
+
+def equilibrium_centroid_vertical_offset(theta, relative_density, side=1.0, tol=1e-10, max_iter=100):
+    if relative_density <= 0.0 or relative_density >= 1.0:
+        raise ValueError("relative_density must be between 0 and 1 for a floating prism")
+
+    target_area = relative_density * side * side
+    lower = -side / 2.0
+    upper = side / 2.0
+    f_lower = _submerged_area_and_centroid(theta, lower, side)[0] - target_area
+    f_upper = _submerged_area_and_centroid(theta, upper, side)[0] - target_area
+
+    if f_lower < 0 or f_upper > 0:
+        raise RuntimeError("Unable to bracket the equilibrium immersion depth")
+
+    for _ in range(max_iter):
+        mid = 0.5 * (lower + upper)
+        area_mid = _submerged_area_and_centroid(theta, mid, side)[0]
+        f_mid = area_mid - target_area
+        if abs(f_mid) < tol or abs(upper - lower) < tol:
+            return mid
+        if f_mid > 0:
+            lower = mid
+        else:
+            upper = mid
+
+    return 0.5 * (lower + upper)
+
 
 def potential_energy(theta, relative_density, side=1.0, g=9.81):
+    theta_array = np.atleast_1d(theta)
+    scalar_input = theta_array.shape == ()
+    energies = []
 
-    rho = 0.5 - np.abs(0.5 - relative_density) 
-    theta = np.abs(theta)
+    for angle in np.nditer(theta_array):
+        y0 = equilibrium_centroid_vertical_offset(float(angle), relative_density, side)
+        _, centroid = _submerged_area_and_centroid(float(angle), y0, side)
+        y_b = centroid[1]
+        energies.append(g * relative_density * side * side * (y0 - y_b))
 
-    x_bg, y_bg = r_bg(theta, rho, side)
-    H = -np.sin(theta) * x_bg + np.cos(theta) * y_bg
-    energy = g * relative_density * side * side * H
-
-    return energy
+    energies = np.array(energies)
+    if scalar_input:
+        return float(energies)
+    return energies.reshape(theta_array.shape)
 
 
 def find_equilibrium_angles(relative_density, side=1.0, g=9.81, angle_range=(-np.pi/2, np.pi/2), num_points=2000, tol=1e-8):
@@ -56,7 +122,7 @@ def find_equilibrium_angles(relative_density, side=1.0, g=9.81, angle_range=(-np
     Returns angles in radians where the potential is locally minimal.
     """
     angles = np.linspace(angle_range[0], angle_range[1], num_points)
-    energies = [potential_energy(angle, relative_density, side, g) for angle in angles]
+    energies = potential_energy(angles, relative_density, side, g)
     dtheta = angles[1] - angles[0]
 
     stable_equilibria = []
@@ -190,7 +256,7 @@ def plot_bifurcation_diagram(density_range=(0.1, 0.9), num_densities=200, side=1
 
 def example_energy_curve(relative_density=0.6, side=1.0, g=9.81, num_points=181):
     angles = np.linspace(-np.pi / 4.0, np.pi / 4.0, num_points)  # -45° to +45°
-    energies = [potential_energy(angle, relative_density, side, g) for angle in angles]
+    energies = potential_energy(angles, relative_density, side, g)
     return angles, energies
 
 
@@ -265,5 +331,5 @@ if __name__ == "__main__":
     print(f"Equilibrium angles: {np.degrees(eq_angles)} degrees")
 
     # Plot diagrams
-    plot_multiple_potential_vs_angle(relative_densities=[0.1, 0.2, 0.3, 0.4, 0.5], degrees=True, normalize_mean=True)
+    #plot_multiple_potential_vs_angle(relative_densities=[0.1, 0.2, 0.3, 0.4, 0.5], degrees=True, normalize_mean=True)
     plot_bifurcation_diagram(density_range=(0.05, 0.95), num_densities=100)
